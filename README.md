@@ -24,7 +24,6 @@ It is a **proof-of-concept agent** showing **tool-based retrieval, explainable s
 ---
 
 ## Repo Layout
-```
 ./
   app.py                # CLI entrypoint
   ui_streamlit.py       # Streamlit UI
@@ -35,14 +34,12 @@ It is a **proof-of-concept agent** showing **tool-based retrieval, explainable s
   .env.example          # Example configuration
   requirements.txt      # Dependencies
   README.md             # This file
-```
 
 ---
 
 ## Quickstart
 - **Python**: 3.10+  
 
-```bash
 # 1) Create virtual env
 python -m venv .venv && source .venv/bin/activate  # (Windows: .venv\Scripts\activate)
 
@@ -52,31 +49,26 @@ pip install -r requirements.txt
 # 3) Configure environment variables
 cp .env.example .env
 # edit with your API keys (OpenAI / Anthropic / Vertex / Gemini optional)
-```
 
 ### Run Examples
-```bash
 # 4) Ask about a company
 python app.py ask "What’s the mission and sustainability profile of MSFT?"
 
 # 5) Get recommendations
 python app.py recommend --risk low --values climate,diversity --k 3 --explain
-```
 
 ---
 
 ## Architecture (high-level)
 
-```mermaid
 flowchart TD
-  A[Inputs: Ticker / Company] -->|fetch| B[Tools]
-  B --> C[Risk Scorer (beta buckets)]
-  B --> D[Values Scorer (climate, deforestation, diversity)]
-  C --> E[Composite Scorer (weighted avg)]
-  D --> E
-  E --> F[LLM Summarizer (optional)]
-  F --> G[Outputs: CLI, Streamlit, JSON, Markdown]
-```
+    A[Inputs: Ticker / Company] -->|fetch| B[Tools]
+    B --> C[Risk Scorer (beta buckets)]
+    B --> D[Values Scorer (climate, deforestation, diversity)]
+    C --> E[Composite Scorer (weighted avg)]
+    D --> E
+    E --> F[LLM Summarizer (optional)]
+    F --> G[Outputs: CLI, Streamlit, JSON, Markdown]
 
 ---
 
@@ -103,9 +95,7 @@ Environment variables (see `.env.example`):
 ---
 
 ## Testing
-```bash
 pytest -q -k smoke
-```
 
 ---
 
