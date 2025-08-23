@@ -386,8 +386,31 @@ def answer_question(q: str) -> str:
                 final += "\n\nSustainability snapshot:"
         except Exception:
             pass
+        
+        try:
+            fil = facts.get("filings")
+            if fil:
+                lines = []
+                if isinstance(fil, str):
+                    lines.append(fil)
+                elif isinstance(fil, list):
+                    for x in fil:
+                        if isinstance(x, dict):
+                            title = (x.get("title") or "").strip()
+                            url = (x.get("url") or "").strip()
+                            if title and url:
+                                lines.append(f"- {title} — {url}")
+                            elif title:
+                                lines.append(f"- {title}")
+                        else:
+                            lines.append(str(x))
+                if lines:
+                    final += "\n\nFilings:\n" + "\n".join(lines)
+        except Exception:
+            pass
 
         return final
+    
     except Exception as e:
         base = f"Something went wrong answering your question: {e}"
         final = header + base
