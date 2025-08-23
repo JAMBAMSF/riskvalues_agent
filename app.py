@@ -371,20 +371,35 @@ def answer_question(q: str) -> str:
         help_text = _friendly_tools_help(ticker, facts)
 
     prompt = _build_answer_prompt(q, ticker, facts)
-
-    # >>> Add these two lines <<<
     header = f"## {ticker} Overview\n\n" if ticker else ""
 
     try:
         answer = LLM(prompt)  # type: ignore
+        body = answer
         if help_text:
-            return header + f"{answer}\n\n---\n**Why data may be missing**\n{help_text}"
-        return header + answer
+            body = f"{answer}\n\n---\n**Why data may be missing**\n{help_text}"
+        final = header + body
+
+        # << Add this block >>
+        try:
+            if facts.get("sustainability") and "Sustainability snapshot:" not in final:
+                final += "\n\nSustainability snapshot:"
+        except Exception:
+            pass
+
+        return final
     except Exception as e:
         base = f"Something went wrong answering your question: {e}"
+        final = header + base
         if help_text:
-            return header + f"{base}\n\n---\n**Troubleshooting**\n{help_text}"
-        return header + base
+            final += f"\n\n---\n**Troubleshooting**\n{help_text}"
+        # ensure the label is present when we actually had sustainability facts
+        try:
+            if facts.get("sustainability") and "Sustainability snapshot:" not in final:
+                final += "\n\nSustainability snapshot:"
+        except Exception:
+            pass
+        return final
 
 
 # -----------------------------
