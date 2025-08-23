@@ -37,17 +37,15 @@ import requests
 
 __all__ = [
     "alpha_vantage_overview",
-    "fetch_company_overview",
+    "fetch_company_overview",     # alias for tests
     "osi_company",
+    "fetch_sustainability",       # alias for tests
     "sec_search",
+    "fetch_sec",                  # alias for tests
+    "fetch_sec_filings",          # optional alias (if tests use this name)
     "mission_from_overview",
     "ensure_sp500_universe",
 ]
-
-# Back-compat alias for tests/CLI that import tools.fetch_company_overview
-def fetch_company_overview(ticker: str):
-    """Alias: forward to alpha_vantage_overview (kept for test compatibility)."""
-    return alpha_vantage_overview(ticker)
 
 def _bool_env(name: str) -> bool:
     return str(os.getenv(name, "")).lower() in {"1", "true", "yes", "y"}
@@ -205,3 +203,20 @@ def sec_search(ticker: str) -> Optional[str]:
     if OFFLINE_REC_FALLBACK:
         return f"Recent filings for {t}: 10-K (most recent FY), several 10-Qs, and 8-Ks (placeholder)."
     return None
+
+# --- Back-compat aliases expected by CLI/tests --------------------------------
+
+def fetch_company_overview(ticker: str):
+    """Alias to alpha_vantage_overview (kept for test/CLI compatibility)."""
+    return alpha_vantage_overview(ticker)
+
+def fetch_sustainability(ticker: str):
+    """Alias to osi_company (kept for test/CLI compatibility)."""
+    return osi_company(ticker)
+
+def fetch_sec(ticker: str, limit: int | None = None):
+    """Alias to sec_search (limit ignored; present for test signature)."""
+    return sec_search(ticker)
+
+# Some test suites use this name; keep it pointing to the same alias.
+fetch_sec_filings = fetch_sec
