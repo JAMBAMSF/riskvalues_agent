@@ -37,12 +37,13 @@ import requests
 
 __all__ = [
     "alpha_vantage_overview",
-    "fetch_company_overview",     # alias for tests
+    "fetch_company_overview",     
     "osi_company",
-    "fetch_sustainability",       # alias for tests
+    "fetch_sustainability",       
     "sec_search",
-    "fetch_sec",                  # alias for tests
-    "fetch_sec_filings",          # optional alias (if tests use this name)
+    "fetch_sec",                  
+    "fetch_sec_filings",          
+    "search_sec_filings",         
     "mission_from_overview",
     "ensure_sp500_universe",
 ]
@@ -220,3 +221,4 @@ def fetch_sec(ticker: str, limit: int | None = None):
 
 # Some test suites use this name; keep it pointing to the same alias.
 fetch_sec_filings = fetch_sec
+search_sec_filings = fetch_sec
