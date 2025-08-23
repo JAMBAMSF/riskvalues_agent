@@ -8,6 +8,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # Force offline/demo behavior so tests never call real APIs
+      OFFLINE_REC_FALLBACK: "1"
+      UNIVERSE_LIMIT: "20"
+      AV_MAX_CALLS_PER_RUN: "5"
+      LLM_PROVIDER: "anthropic"
+      ANTHROPIC_API_KEY: "dummy"
+      OPENAI_API_KEY: "dummy"
+      GEMINI_API_KEY: "dummy"
+      GOOGLE_CLOUD_PROJECT: "riskvaluesagent"
+      GOOGLE_CLOUD_LOCATION: "us-central1"
+      VERTEX_MODEL: "gemini-2.0-flash"
+      # Make local package importable without packaging
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       - name: Checkout
@@ -16,52 +30,25 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install dependencies
+      - name: Install minimal deps
         run: |
           python -m pip install -U pip
-          # If you have a requirements file, install it; ignore missing file
+          # core libs used by your code/tests
+          pip install "pydantic>=2,<3" requests pytest
+          # if your tests import streamlit, uncomment:
+          # pip install streamlit
+          # if you have requirements.txt, install it too (won't fail if absent)
           [ -f requirements.txt ] && pip install -r requirements.txt || true
-          # Local package (if you have a setup.cfg/pyproject)
-          pip install -e . || true
-          # Test tools
-          pip install pytest
 
-      - name: Set demo/offline env so tests don't call external APIs
-        run: |
-          echo "OFFLINE_REC_FALLBACK=1" >> $GITHUB_ENV
-          echo "UNIVERSE_LIMIT=20" >> $GITHUB_ENV
-          echo "AV_MAX_CALLS_PER_RUN=5" >> $GITHUB_ENV
-          echo "LLM_PROVIDER=anthropic" >> $GITHUB_ENV
-          echo "ANTHROPIC_API_KEY=dummy" >> $GITHUB_ENV
-          echo "OPENAI_API_KEY=dummy" >> $GITHUB_ENV
-          echo "GEMINI_API_KEY=dummy" >> $GITHUB_ENV
-          echo "GOOGLE_CLOUD_PROJECT=riskvaluesagent" >> $GITHUB_ENV
-          echo "GOOGLE_CLOUD_LOCATION=us-central1" >> $GITHUB_ENV
-          echo "VERTEX_MODEL=gemini-2.0-flash" >> $GITHUB_ENV
-
-      - name: Smoke import (no network)
+      - name: Smoke import (sanity)
         run: |
           python - <<'PY'
           import importlib
-          mods = [
-            "agent.models",
-            "agent.mission",
-            "agent.tools",
-            "agent.planner",
-          ]
-          for m in mods:
-            importlib.import_module(m)
-            print("Imported:", m)
+          for m in ["agent.models","agent.mission","agent.tools","agent.planner"]:
+              importlib.import_module(m)
+              print("Imported:", m)
           print("Smoke import OK")
           PY
 
