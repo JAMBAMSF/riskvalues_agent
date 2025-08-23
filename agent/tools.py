@@ -37,11 +37,17 @@ import requests
 
 __all__ = [
     "alpha_vantage_overview",
+    "fetch_company_overview",
     "osi_company",
     "sec_search",
     "mission_from_overview",
     "ensure_sp500_universe",
 ]
+
+# Back-compat alias for tests/CLI that import tools.fetch_company_overview
+def fetch_company_overview(ticker: str):
+    """Alias: forward to alpha_vantage_overview (kept for test compatibility)."""
+    return alpha_vantage_overview(ticker)
 
 def _bool_env(name: str) -> bool:
     return str(os.getenv(name, "")).lower() in {"1", "true", "yes", "y"}
