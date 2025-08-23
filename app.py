@@ -357,39 +357,34 @@ def _friendly_tools_help(tkr: Optional[str], facts: Dict[str, Any]) -> str:
 # Public callable for UI
 # -----------------------------
 def answer_question(q: str) -> str:
-    """
-    Main entrypoint used by the Streamlit UI.
-    Safe to call even if this module was imported (no CLI main() executed).
-    """
     _ensure_llm()
     try:
         ticker, facts = _gather_company_facts(q)
     except Exception as e:
-        # Tools failed entirely; still allow a best-effort guarded response.
         warnings.warn(f"Tool gathering failed: {e}")
         ticker, facts = None, {"overview": None, "sustainability": None, "filings": None, "mission": None}
 
-    # Handy debug log to confirm resolved ticker
     logging.info("Resolved ticker for Q&A: %s", ticker)
 
     help_text = None
     if not ticker or all(v is None for k, v in facts.items() if k != "mission"):
-        # Provide helpful hints right in the response body
         help_text = _friendly_tools_help(ticker, facts)
 
     prompt = _build_answer_prompt(q, ticker, facts)
+
+    # >>> Add these two lines <<<
+    header = f"## {ticker} Overview\n\n" if ticker else ""
+
     try:
         answer = LLM(prompt)  # type: ignore
         if help_text:
-            # Append hints below the model’s short answer, so reviewers see why fields may be blank
-            return f"{answer}\n\n---\n**Why data may be missing**\n{help_text}"
-        return answer
+            return header + f"{answer}\n\n---\n**Why data may be missing**\n{help_text}"
+        return header + answer
     except Exception as e:
-        # If the LLM fails, at least give the user actionable steps
         base = f"Something went wrong answering your question: {e}"
         if help_text:
-            return f"{base}\n\n---\n**Troubleshooting**\n{help_text}"
-        return base
+            return header + f"{base}\n\n---\n**Troubleshooting**\n{help_text}"
+        return header + base
 
 
 # -----------------------------
