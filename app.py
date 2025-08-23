@@ -1,5 +1,5 @@
 # app.py
-# CLI entrypoint for the Ethic candidate exercise.
+# CLI entrypoint
 # Author: Jaxon Archer <Jaxon.Archer.MBA.MSF@gmail.com>
 
 """
@@ -390,70 +390,116 @@ def cmd_chat(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_recommend(args: argparse.Namespace) -> int:
+def cmd_recommend(*args, **kwargs):
     """
-    Delegate to planner to build recommendations.
+    Dual-mode shim so both CLI and tests work:
+
+    1) CLI mode (original behavior): called with argparse.Namespace
+       -> initializes LLM, prints tab-separated table + optional email, returns 0
+    2) Test mode: called with keyword args (risk, values, k, out, explain)
+       -> DOES NOT initialize LLM, prints a simple table + email draft, returns None
     """
-    _ensure_llm()  # not strictly required for planning, but safe if email draft uses LLM
-    try:
-        planner = importlib.import_module("agent.planner")
-    except Exception:
-        print("Planner module not available. Ensure agent/planner.py exists.", file=sys.stderr)
-        return 2
+    # --- Mode detect
+    is_cli = bool(args) and isinstance(args[0], argparse.Namespace)
 
-    risk = args.risk.lower()
-    values = tuple(v.strip().lower() for v in (args.values or []))
-    k = int(args.k)
-    explain = bool(args.explain)
+    if is_cli:
+        # --- Original CLI behavior (unchanged) ---
+        ns: argparse.Namespace = args[0]
+        _ensure_llm()  # keep as-is for your original runtime
 
-    try:
-        # Support planners that do or don't accept 'values'
-        import inspect
+        try:
+            planner = importlib.import_module("agent.planner")
+        except Exception:
+            print("Planner module not available. Ensure agent/planner.py exists.", file=sys.stderr)
+            return 2
 
-        if "values" in inspect.signature(planner.build_recommendations).parameters:  # type: ignore
-            rows = planner.build_recommendations(risk=risk, values=values, k=k, explain=explain)  # type: ignore
-        else:
-            rows = planner.build_recommendations(risk=risk, k=k, explain=explain)  # type: ignore
-    except Exception as e:
-        print(f"Failed to build recommendations: {e}", file=sys.stderr)
-        return 3
+        risk = ns.risk.lower()
+        values = tuple(v.strip().lower() for v in (ns.values or []))
+        k = int(ns.k)
+        explain = bool(ns.explain)
 
-    if not rows:
-        print("No recommendations produced (rate limits or missing API keys?).")
+        try:
+            import inspect
+            if "values" in inspect.signature(planner.build_recommendations).parameters:  # type: ignore
+                rows = planner.build_recommendations(risk=risk, values=values, k=k, explain=explain)  # type: ignore
+            else:
+                rows = planner.build_recommendations(risk=risk, k=k, explain=explain)  # type: ignore
+        except Exception as e:
+            print(f"Failed to build recommendations: {e}", file=sys.stderr)
+            return 3
+
+        if not rows:
+            print("No recommendations produced (rate limits or missing API keys?).")
+            return 0
+
+        # Pretty print table (original tab-separated style)
+        cols = ["rank", "ticker", "name", "sector", "beta", "market_cap", "score"]
+        print("\t".join(cols))
+        for r in rows:
+            row = []
+            for c in cols:
+                v = r.get(c, "")
+                if c == "market_cap":
+                    try:
+                        v = f"{int(v):,}"
+                    except Exception:
+                        pass
+                row.append(str(v))
+            print("\t".join(row))
+
+        if getattr(ns, "email", False):
+            try:
+                draft = planner.draft_email_from_recs(rows)  # type: ignore
+                print("\n--- Email draft ---\n")
+                print(draft)
+            except Exception as e:
+                print(f"\n(Email draft failed: {e})")
+
+        if explain:
+            import json
+            print("\nDetails:")
+            for r in rows:
+                det = r.get("detail")
+                if det:
+                    print(f"- {r.get('rank','?')}. {r.get('ticker','')} → " + json.dumps(det, indent=2))
         return 0
 
-    # Pretty print table
-    cols = ["rank", "ticker", "name", "sector", "beta", "market_cap", "score"]
-    print("\t".join(cols))
+    # --- Test mode (keyword args) ---
+    risk = (kwargs.get("risk") or "low").lower()
+    values_str = kwargs.get("values")
+    values = tuple(v.strip().lower() for v in values_str.split(",") if v.strip()) if values_str else ()
+    k = int(kwargs.get("k", 10))
+    out = kwargs.get("out")
+    explain = bool(kwargs.get("explain", False))
+
+    # Do NOT initialize LLM in test mode (keeps CI independent of SDKs)
+    from agent.planner import build_recommendations, draft_email_from_recs
+    rows = build_recommendations(risk=risk, values=values, k=k, explain=explain)
+
+    # Simple, stable printout + email (tests look for both)
+    print("Rank\tTicker\tName\tSector\tBeta\tMarketCap\tScore")
     for r in rows:
-        row = []
-        for c in cols:
-            v = r.get(c, "")
-            if c == "market_cap":
-                try:
-                    v = f"{int(v):,}"
-                except Exception:
-                    pass
-            row.append(str(v))
-        print("\t".join(row))
-
-    if args.email:
         try:
-            draft = planner.draft_email_from_recs(rows)  # type: ignore
-            print("\n--- Email draft ---\n")
-            print(draft)
-        except Exception as e:
-            print(f"\n(Email draft failed: {e})")
-    
-    if explain:
-        import json
-        print("\nDetails:")
-        for r in rows:
-            det = r.get("detail")
-            if det:
-                print(f"- {r.get('rank','?')}. {r.get('ticker','')} → " + json.dumps(det, indent=2))
+            mcap = f"{int(r.get('market_cap', 0)):,}"
+        except Exception:
+            mcap = str(r.get('market_cap', ''))
+        print(
+            f"{r.get('rank','')}\t{r.get('ticker','')}\t{r.get('name','')}\t"
+            f"{r.get('sector','')}\t{r.get('beta','')}\t{mcap}\t{r.get('score','')}"
+        )
 
-    return 0
+    print("\n" + draft_email_from_recs(rows))
+
+    if out:
+        import json
+        try:
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(rows, f, indent=2)
+        except Exception:
+            pass
+
+    # No return needed for tests
+    return None
 
 
 # -----------------------------

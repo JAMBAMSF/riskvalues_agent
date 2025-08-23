@@ -399,5 +399,5 @@ def draft_email_from_recs(recs: List[Dict[str, Any]]) -> str:
             f"mcap={_fmt_mcap(r.get('market_cap', 0))}; score={r.get('score','?')}"
         )
     lines.append("\nHappy to walk through the methodology, data sources, or trade-offs.\n")
-    lines.append("Best,\nYour Ethic Agent\n")
+    lines.append("Best,\nYour RiskValues Agent\n")
     return "\n".join(lines)
