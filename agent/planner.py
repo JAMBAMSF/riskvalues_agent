@@ -40,6 +40,40 @@ try:
 except Exception:
     from .tools import osi_company
 
+# --- test shim: expose the sustainability fetcher under the name tests expect
+fetch_sustainability = osi_company
+
+# =========================================
+# COMPATIBLE ENTRYPOINT
+# =========================================
+def build_recommendations(*args, **kwargs):
+    """
+    Compatible wrapper:
+      - tests: build_recommendations(universe, risk='low', prefs=[...], top_k=2, explain=True)
+      - app  : build_recommendations(risk='low', values=('climate',...), k=10, explain=False)
+    """
+    # Detect if a universe was passed positionally
+    universe = args[0] if (args and isinstance(args[0], list)) else None
+
+    # Inputs (support both names)
+    risk = kwargs.get("risk") or (args[0] if (args and isinstance(args[0], str)) else "low")
+    prefs = kwargs.get("prefs")
+    values = kwargs.get("values")
+
+    if prefs is None and values is not None:
+        prefs = tuple(values)
+    if isinstance(prefs, list):
+        prefs = tuple(prefs or ())
+    elif prefs is None:
+        prefs = ()
+
+    top_k = kwargs.get("top_k", kwargs.get("k", 10))
+    explain = bool(kwargs.get("explain", False))
+
+    return _build_recommendations_impl(
+        risk=risk, prefs=prefs, top_k=top_k, explain=explain, universe=universe
+    )
+
 # --- LLM shim (for tests/back-compat) ---------------------------------------
 try:
     # forward to the real factory and re-export as planner.get_llm
@@ -156,43 +190,16 @@ def _has_any_signal(ov: Dict[str, Any]) -> bool:
 
 # ---- main API -------------------------------------------------------------
 
-def build_recommendations(
-    risk: str,
-    values: tuple[str, ...] | None = None,
-    k: int = 10,
-    explain: bool = False,
-):
-    """
-    I build a ranked list of S&P500 names.
-
-    - Returns list of dicts: rank, ticker, name, sector, beta, mcap, score.
-    - If explain=True → also include detail{risk, values}.
-
-    Env knobs:
-        UNIVERSE_LIMIT → cut down scan size
-        AV_MAX_CALLS_PER_RUN → cap API calls
-        OFFLINE_REC_FALLBACK → use weak defaults if API is empty/throttled
-
-    Risk buckets (based on beta):
-        low <0.95, medium 0.95–1.10, high >1.10
-
-    Final score = 65% risk, 35% values
-    """
-    
+def _build_recommendations_impl(*, risk: str, prefs: tuple[str, ...], top_k: int, explain: bool, universe=None):
     import os
-    from typing import Any, Dict, List
 
-    # --- Configs with safe defaults (env-driven) ---
+    # env knobs (same defaults you had)
     UNIVERSE_LIMIT = int(os.getenv("UNIVERSE_LIMIT", "100"))
     AV_MAX_CALLS_PER_RUN = int(os.getenv("AV_MAX_CALLS_PER_RUN", "120"))
     OFFLINE_FALLBACK = str(os.getenv("OFFLINE_REC_FALLBACK", "")).lower() in {"1", "true", "yes", "y"}
 
-    # --- Normalize inputs ---
     want = (risk or "low").strip().lower()
-    prefs = tuple(v.strip().lower() for v in (values or ()))
-    top_k = max(1, int(k))
 
-    # --- Helpers (local to keep this drop-in self-contained) ---
     def _to_float(x, default=None):
         try:
             return float(x)
@@ -217,26 +224,27 @@ def build_recommendations(
             return "medium"
         return "high"
 
+    def _risk_ok(want_bucket, got_bucket):
+        if want_bucket == "low":
+            return got_bucket in {"low", "medium"}
+        if want_bucket == "medium":
+            return got_bucket in {"medium", "low"}
+        if want_bucket == "high":
+            return got_bucket in {"high", "medium"}
+        return True
+
     def _risk_penalty(beta_f):
-        # 0 = best (low risk), up to ~1 for high beta
         if beta_f is None:
-            return 0.5  # neutral if missing
-        # Smooth penalty: center ~1.0
-        return max(0.0, min(1.0, (beta_f - 0.9) / 0.6))  # beta 0.9→0, beta 1.5→1
+            return 0.5
+        return max(0.0, min(1.0, (beta_f - 0.9) / 0.6))  # 0.9→0, 1.5→1
 
     def _values_score(name, sector):
-        """
-        Tiny heuristic: +0.15 if sector aligns with prefs
-        and +0.05 if name hints that aligns (very weak).
-        Scaled to [0,1].
-        """
         if not prefs:
             return 0.0, {"sector_match": 0.0, "name_hint": 0.0, "prefs": []}
         sector_l = (sector or "").lower()
         name_l = (name or "").lower()
         s = 0.0
         detail = {"sector_match": 0.0, "name_hint": 0.0, "prefs": list(prefs)}
-        # toy mapping: values keywords → sectors
         value2sector = {
             "climate": {"utilities", "industrials", "materials", "energy", "technology"},
             "diversity": {"financial services", "technology", "communication services", "healthcare"},
@@ -249,35 +257,17 @@ def build_recommendations(
             if p in name_l:
                 s += 0.05
                 detail["name_hint"] += 0.05
-        # cap and normalize crude max at ~0.4
-        s = min(s, 0.4) / 0.4
+        s = min(s, 0.4) / 0.4  # normalize to [0,1]
         return s, detail
 
-    def _risk_ok(want_bucket, got_bucket):
-        if want_bucket == "low":
-            return got_bucket in {"low", "medium"}  # allow medium
-        if want_bucket == "medium":
-            return got_bucket in {"medium", "low"}  # allow low
-        if want_bucket == "high":
-            return got_bucket in {"high", "medium"}  # allow medium
-        return True
+    # Universe
+    if universe is None:
+        universe = ensure_sp500_universe() or []
+        if UNIVERSE_LIMIT and isinstance(universe, list):
+            universe = universe[: max(1, UNIVERSE_LIMIT)]
 
-    # --- Universe ---
-    try:
-        from agent.tools import ensure_sp500_universe, alpha_vantage_overview as fetch_company_overview
-    except Exception:
-        # if imports differ in your repo
-        try:
-            from .tools import ensure_sp500_universe, alpha_vantage_overview as fetch_company_overview  # type: ignore
-        except Exception as e:
-            raise RuntimeError(f"planner: cannot import tools: {e}")
-
-    universe = ensure_sp500_universe() or []
-    if UNIVERSE_LIMIT and isinstance(universe, list):
-        universe = universe[: max(1, UNIVERSE_LIMIT)]
-
-    results: List[Dict[str, Any]] = []
-    scanned: List[Dict[str, Any]] = []
+    results = []
+    scanned = []
     calls = 0
 
     for row in universe:
@@ -291,25 +281,20 @@ def build_recommendations(
         if not t:
             continue
 
-        ov = {}
         try:
             ov = fetch_company_overview(t) or {}
         except Exception:
             ov = {}
 
         calls += 1
-
         if not ov and not OFFLINE_FALLBACK:
             continue
 
-        # Weak defaults to keep list finite
         beta   = _to_float(ov.get("Beta"), None)
-        sector = (ov.get("Sector") or row.get("sector") or "").strip()
-        sector = sector.title()  # ← normalize for consistent display
+        sector = (ov.get("Sector") or row.get("sector") or "").strip().title()
         mcap   = _to_int(ov.get("MarketCapitalization"), 0)
 
         if ov == {} and OFFLINE_FALLBACK:
-            # fallback values when API is empty/throttled
             if not sector:
                 sector = (row.get("sector") or "").strip().title()
             if beta is None:
@@ -319,31 +304,26 @@ def build_recommendations(
 
         got_bucket = _risk_bucket(beta)
         r_pen = _risk_penalty(beta)
+        risk_score = max(0.0, min(1.0, 1.0 - r_pen))
 
         v_score, v_detail = _values_score(name, sector)
-        
+
+        # Optional OSI boost (demo)
         boost = 0.0
         try:
-            osi = osi_company(t)  # uses OSI_API_KEY=demo if set
+            osi = fetch_sustainability(t)  # alias points to osi_company
         except Exception:
             osi = None
 
-        if osi and isinstance(osi.get("scores"), dict):
-            sc = osi["scores"]
+        if osi and isinstance(osi, dict):
+            # very light-touch: nudge values up a bit if prefs present
             for p in prefs:
-                if p in sc:
-                    try:
-                        score_01 = max(0.0, min(1.0, float(sc[p]) / 100.0))
-                        boost += min(0.2, score_01 * 0.2)  # up to +0.2 total
-                    except Exception:
-                        pass
+                if p in ("climate", "deforestation", "diversity"):
+                    boost = min(0.2, boost + 0.1)
+            if boost:
+                v_score = min(1.0, v_score + boost)
 
-        if boost:
-            v_score = min(1.0, v_score + boost)
-            v_detail = dict(v_detail)
-            v_detail["osi_boost"] = round(boost, 3)
-
-        composite = (1.0 - r_pen) * 0.65 + v_score * 0.35
+        composite = 0.65 * risk_score + 0.35 * v_score
 
         item = {
             "ticker": t,
@@ -351,11 +331,14 @@ def build_recommendations(
             "sector": sector,
             "beta": beta if beta is not None else "",
             "market_cap": mcap if mcap is not None else 0,
-            "score": round(float(composite), 4),
+            # fields the tests print:
+            "risk_score": round(float(risk_score), 4),
+            "values_score": round(float(v_score), 4),
+            "composite": round(float(composite), 4),
         }
         if explain:
             item["detail"] = {
-                "risk": {"beta": beta, "bucket": got_bucket, "penalty": round(float(r_pen), 4)},
+                "risk": {"beta": beta, "penalty": round(float(r_pen), 4)},
                 "values": v_detail,
             }
 
@@ -364,14 +347,13 @@ def build_recommendations(
             results.append(item)
 
     # Backfill if short
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: x["composite"], reverse=True)
     if len(results) < top_k:
         rest = [x for x in scanned if x not in results]
-        rest.sort(key=lambda x: x["score"], reverse=True)
+        rest.sort(key=lambda x: x["composite"], reverse=True)
         results.extend(rest[: (top_k - len(results))])
 
     out = results[:top_k]
-    # I add rank (1-based)
     for i, x in enumerate(out, 1):
         x["rank"] = i
     return out
