@@ -40,6 +40,17 @@ try:
 except Exception:
     from .tools import osi_company
 
+# --- LLM shim (for tests/back-compat) ---------------------------------------
+try:
+    # forward to the real factory and re-export as planner.get_llm
+    from agent.llm import get_llm as get_llm  # type: ignore
+except Exception:
+    try:
+        from .llm import get_llm as get_llm  # type: ignore
+    except Exception:
+        # last resort: keep attribute present but fail clearly if called
+        def get_llm():
+            raise RuntimeError("planner.get_llm not available (LLM module not importable)")
 
 # ---- env knobs -----------------------------------------------------------
 
