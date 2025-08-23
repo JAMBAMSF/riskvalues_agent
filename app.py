@@ -220,10 +220,28 @@ def _gather_company_facts(query: str) -> Tuple[Optional[str], Dict[str, Any]]:
             "ON","IN","TO","BY","AT","FROM"
         }
         tokens = re.findall(r"\b[A-Z]{1,5}\b", q_up)
-        for t in tokens:
-            if t not in STOP:
-                ticker = t
-                break
+
+        # Prefer 3–5 char tokens not in STOP
+        candidates = [t for t in tokens if 3 <= len(t) <= 5 and t not in STOP]
+
+        # If we can, prefer ones that are in the S&P universe tickers
+        known = set()
+        try:
+            from agent.tools import ensure_sp500_universe  # type: ignore
+            uni = ensure_sp500_universe() or []
+            known = { (row.get("ticker") or "").upper() for row in uni }
+        except Exception:
+            pass
+
+        pick = next((t for t in candidates if t in known), None)
+        if not pick and candidates:
+            pick = candidates[0]
+
+        # Still nothing? fall back, but skip 1-letter tokens
+        if not pick:
+            pick = next((t for t in tokens if t not in STOP and len(t) >= 2), None)
+
+        ticker = pick
 
     # only hit APIs once we have a ticker
     if ticker and callable(fetch_company_overview):
