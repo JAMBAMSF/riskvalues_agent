@@ -1,0 +1,25 @@
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+*.log
+
+# OS
+.DS_Store
+
+# Data/Artifacts
+data/
+artifacts/
+outputs/
+*.sqlite
+*.db
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/

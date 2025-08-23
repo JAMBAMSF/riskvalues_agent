@@ -1,0 +1,45 @@
+{
+  "tree": [
+    "./",
+    "  README.md",
+    "  REFLECTIONS.md",
+    "  app.py",
+    "  requirements.txt",
+    "  ui_streamlit.py",
+    "  agent/",
+    "    __init__.py",
+    "    llm.py",
+    "    llm_factory.py",
+    "    mission.py",
+    "    models.py",
+    "    planner.py",
+    "    tools.py",
+    "    vertex_client.py",
+    "    agent/data/",
+    "      sp500_fallback.csv",
+    "  tests/",
+    "    test_cli.py",
+    "    test_scores.py",
+    "    test_tools.py"
+  ],
+  "meta": {
+    "root": "/mnt/data/riskvalues_agent_repo",
+    "ext_counts": {
+      ".py": 13,
+      ".example": 1,
+      ".md": 2,
+      ".txt": 1,
+      ".csv": 1,
+      ".pyc": 8
+    },
+    "requirements": "/mnt/data/riskvalues_agent_repo/requirements.txt",
+    "entry_candidates": [
+      "app.py"
+    ],
+    "has_readme": true,
+    "top_level_dirs": [
+      "agent",
+      "tests"
+    ]
+  }
+}

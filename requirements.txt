@@ -1,0 +1,32 @@
+# Python 3.10–3.11 recommended
+
+# core
+python-dotenv==1.0.1
+requests==2.32.3
+pydantic==2.7.4
+typing-extensions==4.12.2
+
+# numerics
+numpy==1.26.4
+pandas==2.2.2
+
+# ui
+streamlit==1.38.0
+
+# model providers (pick via env)
+google-cloud-aiplatform==1.63.0
+google-generativeai==0.7.2
+openai==1.45.0
+anthropic==0.34.2
+
+# parsing
+lxml==5.2.2
+beautifulsoup4==4.12.3
+html5lib==1.1
+
+# tests
+pytest==8.3.2
+
+# stabilize google/grpc/proto stack
+protobuf==4.25.3
+grpcio==1.66.0
