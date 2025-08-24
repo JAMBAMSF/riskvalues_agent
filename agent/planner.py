@@ -291,6 +291,7 @@ def _build_recommendations_impl(*, risk: str, prefs: tuple[str, ...], top_k: int
             continue
 
         beta   = _to_float(ov.get("Beta"), None)
+        margin = _to_float(ov.get("ProfitMargin"), None)
         sector = (ov.get("Sector") or row.get("sector") or "").strip().title()
         mcap   = _to_int(ov.get("MarketCapitalization"), 0)
 
@@ -323,23 +324,47 @@ def _build_recommendations_impl(*, risk: str, prefs: tuple[str, ...], top_k: int
             if boost:
                 v_score = min(1.0, v_score + boost)
 
-        composite = 0.65 * risk_score + 0.35 * v_score
+        # after you compute risk_score and values_score as floats in [0,1]
+        composite = 0.5 * risk_score + 0.5 * v_score
 
         item = {
             "ticker": t,
             "name": name,
             "sector": sector,
-            "beta": beta if beta is not None else "",
-            "market_cap": mcap if mcap is not None else 0,
-            # fields the tests print:
-            "risk_score": round(float(risk_score), 4),
-            "values_score": round(float(v_score), 4),
-            "composite": round(float(composite), 4),
+            "risk_score": risk_score,    # keep raw float
+            "values_score": v_score,     # keep raw float
+            "composite": composite,      # keep raw float
         }
+        
         if explain:
+            # Build detailed fields expected by tests/CLI
+            values_detail = {}
+            if isinstance(osi, dict):
+                climate_keys = ("carbon_emissions", "emissions", "ghg_emissions", "ghg")
+                for p in prefs:
+                    if p == "climate":
+                        fld = next((k for k in climate_keys if k in osi), None)
+                        values_detail[p] = {"field": (fld or "carbon_emissions"),
+                                             "value": (osi.get(fld) if fld else None)}
+                    elif p == "deforestation":
+                        values_detail[p] = {"field": "deforestation",
+                                             "value": osi.get("deforestation")}
+                    elif p == "diversity":
+                        val = osi.get("board_diversity")
+                        if val is None:
+                            val = osi.get("female_board_pct")
+                        values_detail[p] = {"field": "board_diversity", "value": val}
+            else:
+                values_detail = {p: {"field": None, "value": None} for p in prefs}
+ 
             item["detail"] = {
-                "risk": {"beta": beta, "penalty": round(float(r_pen), 4)},
-                "values": v_detail,
+                "risk": {
+                    "beta": beta,
+                    "profit_margin": margin,
+                    "market_cap": mcap,
+                },
+                "values": values_detail,
+                "values_basis": v_detail,  # keep original heuristics for explain output
             }
 
         scanned.append(item)
@@ -360,26 +385,16 @@ def _build_recommendations_impl(*, risk: str, prefs: tuple[str, ...], top_k: int
 
 
 def draft_email_from_recs(recs: List[Dict[str, Any]]) -> str:
-    """I generate a quick email body from recs (never invent fake numbers)."""
     if not recs:
         return "Subject: Top ideas\n\nNo recommendations available right now."
 
-    def _fmt_mcap(x):
-        try:
-            return f"{int(x):,}"
-        except Exception:
-            return str(x)
-
     lines: List[str] = []
-    lines.append("Subject: Top ideas (by risk & values)\n")
+    lines.append("Subject: Top ideas\n")
     lines.append("Hi,\n")
     lines.append("Here are the top ideas based on your preferences:\n")
-    for r in recs:
-        lines.append(
-            f"{r.get('rank','?')}. {r.get('ticker','')} — {r.get('name','')} "
-            f"({r.get('sector','')}); beta={r.get('beta','?')}, "
-            f"mcap={_fmt_mcap(r.get('market_cap', 0))}; score={r.get('score','?')}"
-        )
+    for i, r in enumerate(recs, 1):
+        nm = r.get("name", "")
+        lines.append(f"{i}. {r.get('ticker','')} — {nm}; score={r.get('composite', 0):.4f}")
     lines.append("\nHappy to walk through the methodology, data sources, or trade-offs.\n")
     lines.append("Best,\nYour RiskValues Agent\n")
     return "\n".join(lines)

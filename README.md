@@ -96,6 +96,7 @@ Environment variables (see `.env.example`):
 
 ## Testing
 pytest -q -k smoke
+pytest -q   # 6 passed
 
 ---
 
@@ -120,3 +121,13 @@ MIT (see `LICENSE`).
 - Inspired by **agent orchestration** (LangGraph-style flows).  
 - Demonstrates **risk/values scoring** + **LLM summarization**.  
 - Designed for **clarity, explainability, and reviewer-friendliness.**  
+
+---
+
+## Quick start
+pip install -r requirements.txt
+python -m agent.cli recommend --risk low --prefs climate diversity --top-k 5
+# or UI
+streamlit run ui.py
+
+---

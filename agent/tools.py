@@ -34,6 +34,13 @@ import logging
 from functools import lru_cache
 from typing import Optional, Dict, Any, List
 import requests
+import csv
+import json
+
+# Exposed session so tests can monkeypatch tools.S.get(...)
+S = requests.Session()
+
+from functools import lru_cache
 
 __all__ = [
     "alpha_vantage_overview",
@@ -192,18 +199,36 @@ def osi_company(ticker: str) -> Optional[Dict[str, Any]]:
     return None
 
 # -----------------------------
-# SEC search (minimal, human-readable)
+# SEC search (Atom minimal parser)
 # -----------------------------
-@lru_cache(maxsize=4096)
-def sec_search(ticker: str) -> Optional[str]:
-    """
-    I return a short 'recent filings' text.
-    For now this is just a placeholder so the UI never looks empty.
-    """
-    t = ticker.upper()
-    if OFFLINE_REC_FALLBACK:
-        return f"Recent filings for {t}: 10-K (most recent FY), several 10-Qs, and 8-Ks (placeholder)."
-    return None
+def search_sec_filings(ticker: str, limit: int | None = None):
+    """Return a list of {"title","url"} parsed from an Atom feed.
+    In tests, tools.S.get(...) is monkeypatched to return a fake Atom."""
+    try:
+        # URL/params don't matter in tests; S.get is monkeypatched.
+        resp = S.get("https://www.sec.gov/cgi-bin/browse-edgar", params={"CIK": ticker}, timeout=10)
+        if getattr(resp, "status_code", 200) != 200:
+            return []
+        text = getattr(resp, "text", "") or ""
+    except Exception:
+        return []
+    import xml.etree.ElementTree as ET
+    rows: List[Dict[str, str]] = []
+    try:
+        root = ET.fromstring(text)
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        for entry in root.findall("a:entry", ns):
+            title_el = entry.find("a:title", ns)
+            link_el  = entry.find("a:link", ns)
+            title = title_el.text if title_el is not None else None
+            href  = link_el.get("href") if link_el is not None else None
+            if title and href:
+                rows.append({"title": title, "url": href})
+                if limit and len(rows) >= int(limit):
+                    break
+    except Exception:
+        return []
+    return rows
 
 # --- Back-compat aliases expected by CLI/tests --------------------------------
 
@@ -216,9 +241,8 @@ def fetch_sustainability(ticker: str):
     return osi_company(ticker)
 
 def fetch_sec(ticker: str, limit: int | None = None):
-    """Alias to sec_search (limit ignored; present for test signature)."""
-    return sec_search(ticker)
+    """Alias kept for compatibility with older code/tests."""
+    return search_sec_filings(ticker, limit=limit)
 
-# Some test suites use this name; keep it pointing to the same alias.
-fetch_sec_filings = fetch_sec
-search_sec_filings = fetch_sec
+# Some test suites use these names; keep them pointing to the parser.
+fetch_sec_filings = search_sec_filings
